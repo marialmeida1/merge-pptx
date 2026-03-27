@@ -1,0 +1,9 @@
+{
+  "name": "node-merge-worker",
+  "version": "1.0.0",
+  "private": true,
+  "main": "merge_worker.js",
+  "dependencies": {
+    "pptx-automizer": "^0.7.0"
+  }
+}
