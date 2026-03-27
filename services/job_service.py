@@ -11,10 +11,12 @@ def create_job():
 
     (job_path / "inputs").mkdir(parents=True, exist_ok=True)
     (job_path / "outputs").mkdir(parents=True, exist_ok=True)
+    (job_path / "previews").mkdir(parents=True, exist_ok=True)
 
     metadata = {
         "job_id": job_id,
         "files": [],
+        "previews": [],
     }
 
     (job_path / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
