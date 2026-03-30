@@ -1,0 +1,39 @@
+.summary-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
+.summary-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    color: #cbd5e1;
+}
+
+.merge-sticky {
+    position: sticky;
+    bottom: 0;
+    padding-top: 12px;
+    padding-bottom: 6px;
+    background: rgba(11, 15, 22, 0.92);
+    backdrop-filter: blur(4px);
+    border-top: 1px solid #1f2937;
+    z-index: 100;
+}
+
+.merge-inline {
+    margin: 10px 0 16px 0;
+}
+
+.merge-inline div[data-testid="stButton"] > button {
+    background: linear-gradient(135deg, #7c3aed, #6d28d9);
+    color: #ffffff;
+    border: 1px solid #5b21b6;
+    box-shadow: 0 6px 16px rgba(109, 40, 217, 0.35);
+}
+
+.merge-inline div[data-testid="stButton"] > button:hover {
+    background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+    border-color: #6d28d9;
+}
