@@ -19,7 +19,6 @@ from services.selection_service import (
 from services.storage_service import (
     list_files,
     save_uploaded_files,
-    sync_pptx_from_directory,
 )
 
 st.set_page_config(page_title="Composer PPTX", layout="wide")
@@ -46,8 +45,6 @@ def initialize_session_defaults():
         "merge_result": None,
         "final_output_path": None,
         "upload_signature": None,
-        "input_method": "Selecionar arquivos",
-        "watched_directory": "",
         "last_edited_identity": None,
         "top_alert": None,
     }
@@ -225,8 +222,6 @@ def render_sidebar_controls():
             st.session_state.job_id = job_id
             st.session_state.job_path = job_path
             st.session_state.upload_signature = None
-            st.session_state.input_method = "Selecionar arquivos"
-            st.session_state.watched_directory = ""
             clear_pipeline_after_new_inputs()
             set_top_alert(f"Job criado: {job_id}", "success")
 
@@ -237,66 +232,29 @@ def render_sidebar_controls():
 
         st.divider()
         st.subheader("Adicionar arquivos")
-        st.radio(
-            "Método",
-            ["Selecionar arquivos", "Inspecionar pasta"],
-            key="input_method",
+        uploaded_files = st.file_uploader(
+            "Arquivos PPTX",
+            type=["pptx"],
+            accept_multiple_files=True,
+            key="sidebar_uploader",
         )
 
-        if st.session_state.input_method == "Selecionar arquivos":
-            uploaded_files = st.file_uploader(
-                "Arquivos PPTX",
-                type=["pptx"],
-                accept_multiple_files=True,
-                key="sidebar_uploader",
+        if uploaded_files:
+            upload_signature = ",".join(
+                sorted(f"{item.name}:{item.size}" for item in uploaded_files)
             )
+            try:
+                if upload_signature != st.session_state.upload_signature:
+                    save_uploaded_files(st.session_state.job_path, uploaded_files)
 
-            if uploaded_files:
-                upload_signature = ",".join(
-                    sorted(f"{item.name}:{item.size}" for item in uploaded_files)
-                )
-                try:
-                    if upload_signature != st.session_state.upload_signature:
-                        save_uploaded_files(st.session_state.job_path, uploaded_files)
-
-                        st.session_state.upload_signature = upload_signature
-                        clear_pipeline_after_new_inputs()
-                        st.session_state.previews = generate_previews_for_job(
-                            st.session_state.job_path
-                        )
-                        set_top_alert("Arquivos adicionados e previews gerados.", "success")
-                except Exception as error:
-                    set_top_alert(f"Falha ao gerar previews: {error}", "error")
-        else:
-            st.text_input(
-                "Pasta monitorada",
-                key="watched_directory",
-                placeholder="/caminho/da/pasta",
-            )
-
-            if st.button("Atualizar pasta", use_container_width=True):
-                directory_value = st.session_state.watched_directory.strip()
-                if not directory_value:
-                    set_top_alert("Informe o caminho da pasta.", "error")
-                else:
-                    try:
-                        sync_result = sync_pptx_from_directory(
-                            st.session_state.job_path,
-                            Path(directory_value),
-                        )
-
-                        if sync_result["found_count"] == 0:
-                            set_top_alert("Nenhum arquivo PPTX encontrado.", "info")
-                        elif sync_result["copied_count"] == 0:
-                            set_top_alert("Pasta já está sincronizada.", "info")
-                        else:
-                            clear_pipeline_after_new_inputs()
-                            st.session_state.previews = generate_previews_for_job(
-                                st.session_state.job_path
-                            )
-                            set_top_alert("Arquivos importados e previews gerados.", "success")
-                    except Exception as error:
-                        set_top_alert(f"Falha ao sincronizar pasta: {error}", "error")
+                    st.session_state.upload_signature = upload_signature
+                    clear_pipeline_after_new_inputs()
+                    st.session_state.previews = generate_previews_for_job(
+                        st.session_state.job_path
+                    )
+                    set_top_alert("Arquivos adicionados e previews gerados.", "success")
+            except Exception as error:
+                set_top_alert(f"Falha ao gerar previews: {error}", "error")
 
 
 def render_right_summary_panel():
