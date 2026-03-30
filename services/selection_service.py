@@ -13,7 +13,8 @@ def normalize_selection(
     selected_identities: list,
     ordered_identities: list,
 ):
-    input_dir = job_path / "inputs"
+    resolved_job_path = job_path.resolve()
+    input_dir = resolved_job_path / "inputs"
     identity_map = {}
 
     for presentation in previews:
@@ -62,7 +63,7 @@ def normalize_selection(
 
 
 def save_selection(job_path: Path, normalized_selection: list):
-    selection_path = job_path / "selection.json"
+    selection_path = job_path.resolve() / "selection.json"
 
     payload = {
         "job_id": job_path.name,
@@ -74,7 +75,7 @@ def save_selection(job_path: Path, normalized_selection: list):
 
 
 def build_merge_request(job_path: Path, normalized_selection: list):
-    output_path = job_path / "outputs" / "final.pptx"
+    output_path = (job_path.resolve() / "outputs" / "final.pptx").resolve()
 
     return {
         "job_id": job_path.name,
