@@ -1,29 +1,34 @@
 # PPTX Composer
 
-PPTX Composer is a small document-processing application that helps users:
+PPTX Composer is a containerized application for building a new PowerPoint deck from slides selected across multiple `.pptx` files.
 
-* upload multiple PowerPoint files (`.pptx`)
-* generate visual slide previews
+It gives users a simple visual workflow:
+
+* upload multiple presentations
+* generate slide previews
 * select and reorder slides
-* create a new merged presentation
+* generate a merged presentation
 * download the final `.pptx`
 
-The user interface is built with Streamlit, while preview conversion and PPTX merge are isolated in dedicated services.
+The project is built as a pragmatic PoC with a cleaner service split than the original single-container approach.
 
-## What this project does
+> Status: active PoC with a production-oriented architecture baseline
 
-The application turns a manual presentation-composition workflow into a guided pipeline:
+## Why this project
 
-1. create a job
-2. upload one or more PPTX files
-3. convert each PPTX into PDF for preview rendering
-4. generate PNG thumbnails for each slide
-5. select the slides you want
-6. define the final output order
-7. generate a new merged PPTX
-8. download the result
+The initial version placed Streamlit, LibreOffice, preview generation, and the Node.js merge worker in a single container. That worked for a first prototype, but it also made the setup heavier, harder to maintain, and more fragile.
 
-The project is designed to keep the main app simple while delegating heavier processing to specialized services.
+This version keeps the same core user flow while separating the heavy processing steps into dedicated services.
+
+## Key features
+
+* Visual slide preview generation from uploaded PPTX files
+* Slide selection across multiple presentations
+* Slide ordering before final composition
+* PPTX merge powered by `pptx-automizer`
+* Headless conversion pipeline for preview rendering
+* Docker-based multi-service setup
+* Job-based filesystem isolation for traceability
 
 ## Architecture
 
@@ -47,7 +52,19 @@ Streamlit app
   +----> shared job storage
 ```
 
-This separation makes the system lighter, more stable, and easier to scale than a single-container setup.
+This separation makes the system lighter, more stable, and easier to evolve than the original all-in-one container.
+
+## Main workflow
+
+1. Create a new job.
+2. Upload one or more `.pptx` files.
+3. Convert each PPTX to PDF for preview rendering.
+4. Generate PNG thumbnails from the PDF pages.
+5. Select the slides to keep.
+6. Reorder the selected slides.
+7. Build the merge request.
+8. Generate the final PPTX.
+9. Download the result.
 
 ## Project structure
 
@@ -61,14 +78,16 @@ This separation makes the system lighter, more stable, and easier to scale than 
 │  └─ merge-worker.Dockerfile
 ├─ docs/
 │  ├─ architecture.md
-│  └─ docker.md
+│  ├─ docker.md
+│  ├─ poc_validation.md
+│  └─ workflow_overview.md
 ├─ service_apps/
 │  └─ converter_api/
 │     └─ main.py
 ├─ services/
 │  ├─ job_service.py
-│  ├─ preview_service.py
 │  ├─ merge_service.py
+│  ├─ preview_service.py
 │  ├─ selection_service.py
 │  ├─ storage_service.py
 │  └─ thumbnail_service.py
@@ -76,59 +95,53 @@ This separation makes the system lighter, more stable, and easier to scale than 
 ├─ workers/
 │  └─ node_merge/
 │     ├─ merge_worker.js
-│     ├─ server.js
-│     └─ package.json
+│     ├─ package.json
+│     └─ server.js
 ├─ requirements.txt
 └─ requirements-converter.txt
 ```
 
-## Main workflow
+## Core components
 
-### 1. Streamlit app
+### Streamlit app
 
-The main entrypoint is [app.py](/Users/mariana/Documents/personal_study/ey-propost/app.py).
+The main entrypoint is [app.py](app.py).
 
-It is responsible for:
+Responsibilities:
 
-* managing session state
-* creating isolated jobs
-* handling file upload
-* triggering preview generation
-* storing selection state
-* calling the merge service
-* exposing the final download
+* manage session state
+* create isolated jobs
+* handle file upload
+* trigger preview generation
+* track slide selection and ordering
+* call the merge service
+* expose the final download
 
-### 2. Preview generation
+### Preview generation
 
 When the user uploads PPTX files:
 
-* the files are saved into the current job directory
+* files are saved into the current job directory
 * the app calls the converter API
 * the converter runs LibreOffice in headless mode and generates PDFs
 * the app converts each PDF page into PNG thumbnails using `pdf2image`
 
 Relevant files:
 
-* [services/storage_service.py](/Users/mariana/Documents/personal_study/ey-propost/services/storage_service.py)
-* [services/preview_service.py](/Users/mariana/Documents/personal_study/ey-propost/services/preview_service.py)
-* [services/thumbnail_service.py](/Users/mariana/Documents/personal_study/ey-propost/services/thumbnail_service.py)
-* [service_apps/converter_api/main.py](/Users/mariana/Documents/personal_study/ey-propost/service_apps/converter_api/main.py)
+* [services/storage_service.py](services/storage_service.py)
+* [services/preview_service.py](services/preview_service.py)
+* [services/thumbnail_service.py](services/thumbnail_service.py)
+* [service_apps/converter_api/main.py](service_apps/converter_api/main.py)
 
-### 3. Slide selection
+### Slide selection
 
-After previews are generated, the user can:
-
-* inspect slides visually
-* select slides from different presentations
-* reorder the selected slides
-
-The selection is normalized and saved as a merge request.
+After previews are generated, the user can inspect, select, and reorder slides. The resulting state is normalized and stored as a merge request.
 
 Relevant file:
 
-* [services/selection_service.py](/Users/mariana/Documents/personal_study/ey-propost/services/selection_service.py)
+* [services/selection_service.py](services/selection_service.py)
 
-### 4. Final merge
+### Final merge
 
 The app writes a `merge_request.json` file and sends it to the Node.js merge service.
 
@@ -142,9 +155,9 @@ The merge service:
 
 Relevant files:
 
-* [services/merge_service.py](/Users/mariana/Documents/personal_study/ey-propost/services/merge_service.py)
-* [workers/node_merge/server.js](/Users/mariana/Documents/personal_study/ey-propost/workers/node_merge/server.js)
-* [workers/node_merge/merge_worker.js](/Users/mariana/Documents/personal_study/ey-propost/workers/node_merge/merge_worker.js)
+* [services/merge_service.py](services/merge_service.py)
+* [workers/node_merge/server.js](workers/node_merge/server.js)
+* [workers/node_merge/merge_worker.js](workers/node_merge/merge_worker.js)
 
 ## Requirements
 
@@ -153,48 +166,46 @@ Recommended:
 * Docker Desktop
 * Docker Compose v2
 
-You do not need LibreOffice or Node.js installed on your host if you run the stack with Docker.
+You do not need LibreOffice or Node.js installed locally if you run the stack with Docker.
 
 ## Quick start
 
-### 1. Build the services
+Build the services:
 
 ```bash
 docker compose build
 ```
 
-### 2. Start the stack
+Start the stack:
 
 ```bash
 docker compose up
 ```
 
-### 3. Open the app
-
-Open:
+Open the application:
 
 ```text
 http://localhost:8501
 ```
 
-### 4. Use the application
-
 Inside the UI:
 
-1. click `Criar novo job`
-2. upload one or more `.pptx` files
-3. wait for preview generation
-4. select and reorder slides
-5. run the merge
-6. download the generated presentation
+1. Click `Criar novo job`.
+2. Upload one or more `.pptx` files.
+3. Wait for preview generation.
+4. Select and reorder slides.
+5. Run the merge.
+6. Download the generated presentation.
 
-## Running in background
+## Useful commands
+
+Run in background:
 
 ```bash
 docker compose up -d
 ```
 
-To inspect logs:
+Inspect logs:
 
 ```bash
 docker compose logs -f app
@@ -202,13 +213,13 @@ docker compose logs -f converter
 docker compose logs -f merge-worker
 ```
 
-To stop everything:
+Stop the stack:
 
 ```bash
 docker compose down
 ```
 
-To also remove the shared job volume:
+Stop and remove the shared volume:
 
 ```bash
 docker compose down -v
@@ -216,7 +227,7 @@ docker compose down -v
 
 ## Environment variables
 
-These are the main service-level variables used in the Docker setup:
+Main service-level variables used in the Docker setup:
 
 * `JOB_STORAGE_ROOT=/data/jobs`
 * `CONVERTER_API_URL=http://converter:8000`
@@ -243,21 +254,18 @@ job/
 
 This keeps processing traceable and avoids collisions between runs.
 
-## Why the services are separated
+## Tradeoffs
 
-The original all-in-one container approach made the app heavier and less stable because it mixed:
+This project intentionally favors simplicity over completeness at this stage.
 
-* Streamlit UI
-* LibreOffice-based conversion
-* Node-based PPTX merge
+Current tradeoffs:
 
-The current design improves that by:
+* LibreOffice is still used for preview conversion, even though it is a heavy dependency
+* processing is still synchronous
+* jobs are stored on a shared Docker volume instead of external storage
+* there is no queue, database, or advanced retry strategy yet
 
-* keeping the app container lighter
-* isolating LibreOffice crashes from the UI
-* isolating merge execution from the UI
-* making future scaling easier
-* reducing responsibility overlap inside a single container
+That said, the architecture is already much cleaner and easier to evolve than a monolithic container.
 
 ## Troubleshooting
 
@@ -298,19 +306,23 @@ docker compose logs -f merge-worker
 
 ## Documentation
 
-Additional documentation is available here:
+Additional project documentation:
 
-* [docs/architecture.md](/Users/mariana/Documents/personal_study/ey-propost/docs/architecture.md)
-* [docs/docker.md](/Users/mariana/Documents/personal_study/ey-propost/docs/docker.md)
-* [docs/workflow_overview.md](/Users/mariana/Documents/personal_study/ey-propost/docs/workflow_overview.md)
+* [docs/architecture.md](docs/architecture.md)
+* [docs/docker.md](docs/docker.md)
+* [docs/poc_validation.md](docs/poc_validation.md)
+* [docs/workflow_overview.md](docs/workflow_overview.md)
 
-## Current status
+## Future improvements
 
-This project is intentionally pragmatic:
+Natural next steps for this project:
 
-* filesystem-based job storage
-* synchronous processing flow
-* no queue yet
-* no database yet
+* add healthchecks and readiness checks
+* move conversion and merge to asynchronous jobs
+* adopt external storage for artifacts
+* improve observability with structured logs and metrics
+* add integration tests for the end-to-end workflow
 
-That keeps the implementation simple while still being much closer to a production-shaped architecture than a single monolithic container.
+## License
+
+Add your preferred license here before publishing publicly.
