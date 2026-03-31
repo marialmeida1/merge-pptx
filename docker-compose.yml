@@ -1,15 +1,46 @@
-version: "3.9"
-
 services:
   app:
-    build: .
-    container_name: pptx-composer
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pptx-composer-app
+    depends_on:
+      - converter
+      - merge-worker
+    environment:
+      STREAMLIT_SERVER_ADDRESS: 0.0.0.0
+      STREAMLIT_SERVER_PORT: 8501
+      JOB_STORAGE_ROOT: /data/jobs
+      CONVERTER_API_URL: http://converter:8000
+      MERGE_API_URL: http://merge-worker:3000
     ports:
       - "8501:8501"
     volumes:
-      - .:/app
-      - ./tmp:/app/tmp
-    environment:
-      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
-      - STREAMLIT_SERVER_PORT=8501
+      - jobs-data:/data/jobs
     restart: unless-stopped
+
+  converter:
+    build:
+      context: .
+      dockerfile: docker/converter.Dockerfile
+    container_name: pptx-composer-converter
+    environment:
+      JOB_STORAGE_ROOT: /data/jobs
+    volumes:
+      - jobs-data:/data/jobs
+    restart: unless-stopped
+
+  merge-worker:
+    build:
+      context: .
+      dockerfile: docker/merge-worker.Dockerfile
+    container_name: pptx-composer-merge-worker
+    environment:
+      JOB_STORAGE_ROOT: /data/jobs
+      PORT: 3000
+    volumes:
+      - jobs-data:/data/jobs
+    restart: unless-stopped
+
+volumes:
+  jobs-data:

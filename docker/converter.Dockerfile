@@ -5,37 +5,34 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     DEBIAN_FRONTEND=noninteractive
 
-WORKDIR /app
+WORKDIR /srv/converter
 
 RUN printf 'Acquire::Retries "3";\nAcquire::ForceIPv4 "true";\n' > /etc/apt/apt.conf.d/99network && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-    poppler-utils \
+    libreoffice-core \
+    libreoffice-impress \
+    fonts-dejavu \
+    fonts-liberation \
     ca-certificates \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY requirements-converter.txt .
 
 RUN pip install --upgrade pip && \
-    pip install -r requirements.txt
+    pip install -r requirements-converter.txt
 
-COPY app.py ./app.py
-COPY services ./services
-COPY styles ./styles
+COPY service_apps ./service_apps
 
 RUN mkdir -p /data/jobs && \
     useradd --create-home --shell /bin/bash appuser && \
-    chown -R appuser:appuser /app /data/jobs
+    chown -R appuser:appuser /srv/converter /data/jobs
 
-ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0 \
-    STREAMLIT_SERVER_PORT=8501 \
-    JOB_STORAGE_ROOT=/data/jobs \
-    CONVERTER_API_URL=http://converter:8000 \
-    MERGE_API_URL=http://merge-worker:3000
+ENV JOB_STORAGE_ROOT=/data/jobs
 
 USER appuser
 
-EXPOSE 8501
+EXPOSE 8000
 
-CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+CMD ["uvicorn", "service_apps.converter_api.main:app", "--host", "0.0.0.0", "--port", "8000"]

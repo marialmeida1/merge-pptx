@@ -1,323 +1,117 @@
-## 1. Overview
+# Docker Setup
 
-This project runs a **PPTX composition pipeline** inside a single Docker container.
+## Services
 
-The container includes:
+The stack now runs as three containers:
 
-* Python + Streamlit → application and UI
-* LibreOffice → PPTX → PDF conversion
-* Poppler → PDF → images
-* Node.js + pptx-automizer → PPTX merge/composition
+* `app`: Streamlit UI and orchestration
+* `converter`: FastAPI + LibreOffice for `PPTX -> PDF`
+* `merge-worker`: Node API + `pptx-automizer` for final merge
 
-The goal is to provide a **reproducible environment** with minimal local setup.
+All three share the `jobs-data` named volume at `/data/jobs`.
 
----
-
-## 2. Prerequisites
-
-Ensure the following is installed on your machine:
-
-* Docker (Docker Desktop on macOS)
-* Docker daemon running
-
-Verify:
-
-```bash
-docker version
-```
-
----
-
-## 3. Project Structure
-
-```text
-project/
-├─ app.py
-├─ requirements.txt
-├─ services/
-├─ workers/
-│  └─ node_merge/
-│     ├─ package.json
-│     └─ merge_worker.js
-├─ tmp/
-├─ Dockerfile
-└─ docker-compose.yml
-```
-
----
-
-## 4. Build and Run
-
-### 4.1 Build the container
+## Build and run
 
 ```bash
 docker compose build
-```
-
----
-
-### 4.2 Run the application
-
-```bash
 docker compose up
 ```
 
----
-
-### 4.3 Run in background
-
-```bash
-docker compose up -d
-```
-
----
-
-## 5. Access the Application
-
-Once running, open:
+App URL:
 
 ```text
 http://localhost:8501
 ```
 
-This will load the Streamlit interface.
-
----
-
-## 6. Volumes and Persistence
-
-The following volume is mounted:
-
-```text
-./tmp → /app/tmp
-```
-
-This directory stores:
-
-```text
-tmp/jobs/
-├─ inputs/
-├─ previews/
-├─ outputs/
-├─ selection.json
-├─ merge_request.json
-└─ merge_result.json
-```
-
-### Purpose
-
-* Persist uploaded files
-* Store preview artifacts
-* Store final outputs
-* Enable debugging outside the container
-
----
-
-## 7. Stopping the Application
+## Stop
 
 ```bash
 docker compose down
 ```
 
----
-
-## 8. Logs
-
-To inspect logs:
+To also remove the job volume:
 
 ```bash
-docker compose logs -f
+docker compose down -v
 ```
 
----
+## Useful commands
 
-## 9. Accessing the Container
-
-To open a shell inside the container:
+Check logs:
 
 ```bash
-docker exec -it pptx-composer bash
+docker compose logs -f app
+docker compose logs -f converter
+docker compose logs -f merge-worker
 ```
 
-You can then validate installed tools:
+Open shells:
 
 ```bash
-soffice --version
-node -v
-npm -v
-python --version
+docker exec -it pptx-composer-app bash
+docker exec -it pptx-composer-converter bash
+docker exec -it pptx-composer-merge-worker sh
 ```
 
----
+## Windows + WSL2 notes
 
-## 10. Rebuilding After Changes
+Recommended choices in this setup:
 
-If you modify:
+* use Docker named volumes for `/data/jobs`
+* avoid mounting temporary job folders from the Windows filesystem
+* keep LibreOffice isolated in its own Linux container
+* avoid any GUI or desktop-office dependency
 
-* `Dockerfile`
-* `requirements.txt`
-* `package.json`
+This reduces I/O overhead and avoids a common source of instability in mixed Windows/WSL2/container workflows.
 
-Rebuild the container:
+## Container design summary
 
-```bash
-docker compose up --build
-```
+### `app` image
 
----
+Contains only:
 
-## 11. Troubleshooting
+* Python
+* Streamlit
+* Poppler for thumbnail generation
+* application source
 
-### Docker daemon not running
+Does not contain:
 
-```text
-Cannot connect to the Docker daemon
-```
+* LibreOffice
+* Node.js
 
-Solution:
+### `converter` image
 
-```bash
-open -a Docker
-```
+Contains:
 
-Wait until Docker Desktop is fully initialized.
+* Python
+* FastAPI
+* LibreOffice
+* fonts required for more stable rendering
 
----
+### `merge-worker` image
 
-### Port already in use
+Contains:
 
-If port `8501` is occupied:
+* Node.js
+* `pptx-automizer`
+* a tiny HTTP wrapper for the existing merge worker
 
-Edit `docker-compose.yml`:
+## Environment variables
 
-```yaml
-ports:
-  - "8502:8501"
-```
+Main variables used by the stack:
 
-Then access:
+* `JOB_STORAGE_ROOT=/data/jobs`
+* `CONVERTER_API_URL=http://converter:8000`
+* `MERGE_API_URL=http://merge-worker:3000`
 
-```text
-http://localhost:8502
-```
+## Why named volumes instead of bind mounts for jobs
 
----
+* better performance on Docker Desktop
+* fewer file permission surprises
+* stable cross-container paths
+* cleaner separation between source code and runtime artifacts
 
-### Permission issues on `tmp/`
+## Recommended next step for production
 
-```bash
-chmod -R 777 tmp
-```
-
----
-
-### LibreOffice not found (inside container)
-
-Verify:
-
-```bash
-soffice --version
-```
-
-If missing, rebuild the image.
-
----
-
-## 12. Development Workflow
-
-Typical flow:
-
-```text
-1. Start container
-2. Upload PPTX files
-3. Generate previews
-4. Select slides
-5. Merge presentations
-6. Download result
-```
-
----
-
-## 13. Design Decisions
-
-### Single Container Approach
-
-The PoC uses a **single container** to simplify:
-
-* environment setup
-* dependency management
-* execution model
-
-All components run in the same runtime environment.
-
----
-
-### File-Based Communication
-
-Python and Node interact via:
-
-```text
-JSON files + subprocess execution
-```
-
-This avoids:
-
-* HTTP services
-* inter-process networking
-* additional infrastructure
-
----
-
-### Job Isolation
-
-All processing is scoped under:
-
-```text
-/app/tmp/jobs/<job_id>
-```
-
-This ensures:
-
-* no cross-job interference
-* deterministic execution
-* easy cleanup
-
----
-
-## 14. Limitations
-
-This setup is intended for a **proof of concept**.
-
-Limitations include:
-
-* synchronous execution
-* no job queue
-* no horizontal scaling
-* large container size (LibreOffice)
-* potential rendering differences vs PowerPoint
-
----
-
-## 15. Next Steps
-
-For production evolution, consider:
-
-* splitting services into multiple containers
-* introducing asynchronous processing
-* using cloud storage (S3/GCS)
-* implementing job lifecycle management
-* adding monitoring and logging
-
----
-
-## 16. Summary
-
-This Docker setup provides:
-
-```text
-A fully isolated, reproducible environment
-for PPTX processing, preview generation,
-and slide composition in a single container.
-```
-
-It enables fast iteration and reliable execution for the PoC phase.
+Keep this compose layout for development and staging. If you later deploy to Kubernetes, ECS, Nomad, or similar, the same split maps cleanly to separate services with persistent shared storage or object storage.
