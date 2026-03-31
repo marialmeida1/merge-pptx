@@ -1,8 +1,9 @@
 import json
+import os
 import uuid
 from pathlib import Path
 
-BASE_DIR = Path("tmp/jobs")
+BASE_DIR = Path(os.getenv("JOB_STORAGE_ROOT", "tmp/jobs"))
 
 
 def create_job():

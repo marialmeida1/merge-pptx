@@ -1,10 +1,15 @@
+import os
 import subprocess
 from pathlib import Path
 
+import requests
+
 from services.thumbnail_service import generate_thumbnails
 
+CONVERTER_API_URL = os.getenv("CONVERTER_API_URL")
 
-def convert_pptx_to_pdf(job_path: Path, pptx_path: Path) -> Path:
+
+def _convert_pptx_to_pdf_locally(job_path: Path, pptx_path: Path) -> Path:
     previews_dir = job_path / "previews"
     previews_dir.mkdir(parents=True, exist_ok=True)
 
@@ -31,6 +36,32 @@ def convert_pptx_to_pdf(job_path: Path, pptx_path: Path) -> Path:
         raise FileNotFoundError(f"Expected PDF was not generated: {pdf_path}")
 
     return pdf_path
+
+
+def _convert_pptx_to_pdf_via_api(job_path: Path, pptx_path: Path) -> Path:
+    response = requests.post(
+        f"{CONVERTER_API_URL.rstrip('/')}/convert/pptx-to-pdf",
+        json={
+            "job_path": str(job_path.resolve()),
+            "pptx_path": str(pptx_path.resolve()),
+        },
+        timeout=180,
+    )
+
+    if response.status_code >= 400:
+        raise RuntimeError(
+            f"Conversion API failed for {pptx_path.name}: {response.text}"
+        )
+
+    payload = response.json()
+    return Path(payload["pdf_path"])
+
+
+def convert_pptx_to_pdf(job_path: Path, pptx_path: Path) -> Path:
+    if CONVERTER_API_URL:
+        return _convert_pptx_to_pdf_via_api(job_path, pptx_path)
+
+    return _convert_pptx_to_pdf_locally(job_path, pptx_path)
 
 
 def generate_previews_for_job(job_path: Path):

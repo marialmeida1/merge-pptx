@@ -1,6 +1,11 @@
 import json
+import os
 import subprocess
 from pathlib import Path
+
+import requests
+
+MERGE_API_URL = os.getenv("MERGE_API_URL")
 
 
 def save_merge_request(job_path: Path, merge_request: dict) -> Path:
@@ -26,7 +31,7 @@ def save_merge_request(job_path: Path, merge_request: dict) -> Path:
     return merge_request_path
 
 
-def run_node_merge_worker(job_path: Path, merge_request_path: Path) -> dict:
+def _run_node_merge_worker_locally(job_path: Path, merge_request_path: Path) -> dict:
     project_root = Path(__file__).resolve().parent.parent
     worker_script = project_root / "workers" / "node_merge" / "merge_worker.js"
     resolved_job_path = job_path.resolve()
@@ -54,6 +59,29 @@ def run_node_merge_worker(job_path: Path, merge_request_path: Path) -> dict:
         )
 
     return json.loads(merge_result_path.read_text(encoding="utf-8"))
+
+
+def _run_node_merge_worker_via_api(job_path: Path, merge_request_path: Path) -> dict:
+    response = requests.post(
+        f"{MERGE_API_URL.rstrip('/')}/merge",
+        json={
+            "job_path": str(job_path.resolve()),
+            "merge_request_path": str(merge_request_path.resolve()),
+        },
+        timeout=180,
+    )
+
+    if response.status_code >= 400:
+        raise RuntimeError(f"Merge API failed: {response.text}")
+
+    return response.json()
+
+
+def run_node_merge_worker(job_path: Path, merge_request_path: Path) -> dict:
+    if MERGE_API_URL:
+        return _run_node_merge_worker_via_api(job_path, merge_request_path)
+
+    return _run_node_merge_worker_locally(job_path, merge_request_path)
 
 
 def validate_final_output(merge_result: dict) -> Path:
