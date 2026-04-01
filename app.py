@@ -20,6 +20,7 @@ from services.storage_service import (
     list_files,
     save_uploaded_files,
 )
+from services.thumbnail_service import generate_thumbnail_for_slide
 
 st.set_page_config(page_title="Composer PPTX", layout="wide")
 
@@ -47,6 +48,7 @@ def initialize_session_defaults():
         "upload_signature": None,
         "last_edited_identity": None,
         "top_alert": None,
+        "slides_per_page": 8,
     }
 
     for key, value in defaults.items():
@@ -192,6 +194,53 @@ def move_selected_slide(identity: str, direction: str):
     st.session_state.ordered_identities = ordered
 
 
+def get_slide_image_path(job_path: Path, presentation: dict, slide: dict) -> str:
+    image_path = Path(slide["image_path"])
+    if image_path.exists():
+        return str(image_path)
+
+    return generate_thumbnail_for_slide(
+        job_path=job_path,
+        pdf_path=Path(presentation["pdf_path"]),
+        slide_index=slide["slide_index"],
+    )
+
+
+def paginate_items(items: list, state_key: str, page_size: int) -> tuple[list, int, int]:
+    if not items:
+        st.session_state[state_key] = 0
+        return [], 0, 0
+
+    total_pages = (len(items) - 1) // page_size + 1
+    current_page = min(st.session_state.get(state_key, 0), total_pages - 1)
+    st.session_state[state_key] = current_page
+
+    start = current_page * page_size
+    end = start + page_size
+    return items[start:end], current_page, total_pages
+
+
+def render_pagination_controls(state_key: str, current_page: int, total_pages: int, label: str):
+    if total_pages <= 1:
+        return
+
+    left_col, center_col, right_col = st.columns([1, 2, 1])
+    with left_col:
+        if st.button("Anterior", key=f"{state_key}_prev", disabled=current_page == 0):
+            st.session_state[state_key] = current_page - 1
+            st.rerun()
+    with center_col:
+        st.caption(f"{label}: página {current_page + 1} de {total_pages}")
+    with right_col:
+        if st.button(
+            "Próxima",
+            key=f"{state_key}_next",
+            disabled=current_page >= total_pages - 1,
+        ):
+            st.session_state[state_key] = current_page + 1
+            st.rerun()
+
+
 def render_main_download_button():
     final_output_path = st.session_state.get("final_output_path")
     if not final_output_path:
@@ -232,6 +281,9 @@ def render_sidebar_controls():
 
         st.divider()
         st.subheader("Adicionar arquivos")
+        st.caption(
+            "As miniaturas agora são geradas sob demanda para reduzir o tempo inicial de carregamento."
+        )
         uploaded_files = st.file_uploader(
             "Arquivos PPTX",
             type=["pptx"],
@@ -249,9 +301,10 @@ def render_sidebar_controls():
 
                     st.session_state.upload_signature = upload_signature
                     clear_pipeline_after_new_inputs()
-                    st.session_state.previews = generate_previews_for_job(
-                        st.session_state.job_path
-                    )
+                    with st.spinner("Lendo apresentações e preparando os slides..."):
+                        st.session_state.previews = generate_previews_for_job(
+                            st.session_state.job_path
+                        )
                     set_top_alert("Arquivos adicionados e previews gerados.", "success")
             except Exception as error:
                 set_top_alert(f"Falha ao gerar previews: {error}", "error")
@@ -353,6 +406,7 @@ with main_col:
                 )
                 slide_lookup[identity] = {
                     "presentation_name": presentation["presentation_name"],
+                    "pdf_path": presentation["pdf_path"],
                     "slide_index": slide["slide_index"],
                     "image_path": slide["image_path"],
                 }
@@ -370,30 +424,55 @@ with main_col:
 
             st.caption("Use as setas para reordenar os slides selecionados.")
 
-            preview_cols_count = min(4, len(ordered_identities))
+            visible_selected, selected_page, selected_total_pages = paginate_items(
+                ordered_identities,
+                "selected_slides_page",
+                8,
+            )
+
+            render_pagination_controls(
+                "selected_slides_page",
+                selected_page,
+                selected_total_pages,
+                "Slides selecionados",
+            )
+
+            preview_cols_count = min(4, len(visible_selected))
             preview_cols = st.columns(preview_cols_count)
 
-            for idx, identity in enumerate(ordered_identities):
+            for idx, identity in enumerate(visible_selected):
                 slide_info = slide_lookup.get(identity)
                 if slide_info is None:
                     continue
 
                 with preview_cols[idx % preview_cols_count]:
+                    absolute_index = selected_page * 8 + idx
+                    image_path = get_slide_image_path(
+                        Path(st.session_state.job_path),
+                        {
+                            "pdf_path": slide_info["pdf_path"],
+                        },
+                        slide_info,
+                    )
                     left_col, center_col, right_col = st.columns([0.7, 2.6, 0.7])
                     with left_col:
-                        if st.button("←", key=f"move_left_{identity}", disabled=idx == 0):
+                        if st.button(
+                            "←",
+                            key=f"move_left_{identity}",
+                            disabled=absolute_index == 0,
+                        ):
                             move_selected_slide(identity, "left")
                     with center_col:
-                        st.caption(f"Posição {idx + 1}")
+                        st.caption(f"Posição {absolute_index + 1}")
                     with right_col:
                         if st.button(
                             "→",
                             key=f"move_right_{identity}",
-                            disabled=idx == len(ordered_identities) - 1,
+                            disabled=absolute_index == len(ordered_identities) - 1,
                         ):
                             move_selected_slide(identity, "right")
 
-                    st.image(slide_info["image_path"], width=240)
+                    st.image(image_path, width=240)
                     st.markdown(f"**Apresentação {slide_info['presentation_name']}**")
                     st.caption(f"Slide {slide_info['slide_index']}")
 
@@ -442,20 +521,45 @@ with main_col:
         render_main_download_button()
 
         st.subheader("Selecionar slides")
+        slides_per_page = st.selectbox(
+            "Slides por página",
+            options=[8, 12, 16],
+            index=[8, 12, 16].index(st.session_state.get("slides_per_page", 8)),
+            key="slides_per_page_selector",
+        )
+        st.session_state.slides_per_page = slides_per_page
 
         for presentation in st.session_state.previews:
             st.markdown(f"### {presentation['presentation_name']}")
 
+            page_key = f"page_{presentation['presentation_name']}"
+            visible_slides, current_page, total_pages = paginate_items(
+                presentation["slides"],
+                page_key,
+                slides_per_page,
+            )
+            render_pagination_controls(
+                page_key,
+                current_page,
+                total_pages,
+                presentation["presentation_name"],
+            )
+
             cols = st.columns(4)
-            for index, slide in enumerate(presentation["slides"]):
+            for index, slide in enumerate(visible_slides):
                 identity = build_slide_identity(
                     presentation["presentation_name"],
                     slide["slide_index"],
                 )
+                image_path = get_slide_image_path(
+                    Path(st.session_state.job_path),
+                    presentation,
+                    slide,
+                )
 
                 with cols[index % 4]:
                     st.image(
-                        slide["image_path"],
+                        image_path,
                         caption=f"Slide {slide['slide_index']}",
                     )
                     st.checkbox(
